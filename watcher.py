@@ -19,6 +19,9 @@ QUERIES = [
     {"name": "ai-red-team", "q": '"red team" AI pentest in:description', "tier": "extended"},
     {"name": "autonomous-pentest", "q": '"autonomous pentest" in:description', "tier": "extended"},
     {"name": "ai-exploit", "q": '"AI exploit" OR "LLM exploit" in:description', "tier": "extended"},
+    {"name": "cn-ai-pentest", "q": '"AI渗透" OR "智能渗透" OR "AI渗透测试" OR "自动化渗透" in:description,readme', "tier": "extended"},
+    {"name": "cn-mixed", "q": '("CTF" OR "pentest" OR "red team") ("渗透" OR "攻防" OR "红队") in:description,readme', "tier": "extended"},
+    {"name": "cn-llm-security", "q": '"大模型安全" OR "LLM安全" OR "AI安全" in:description,readme', "tier": "extended"},
 ]
 
 CORE_TOPICS = {
@@ -27,6 +30,7 @@ CORE_TOPICS = {
     "mcp-security", "llm-security", "ai-security", "agent-security",
     "ai-red-team", "red-teaming", "red-team", "red-team-tools",
     "offensive-security", "ai-hacking", "ai-exploit",
+    "ctf", "ctf-tools", "hacking", "cybersecurity", "security",
 }
 
 BLOCK_DESC_KEYWORDS = [
@@ -45,8 +49,8 @@ MAX_SEEN_IDS = 500
 MAX_LAST_RESULTS = 500
 
 MIN_STARS_CORE = 0
-MIN_STARS_EXTENDED = 10
-MIN_DESC_LENGTH = 20
+MIN_STARS_EXTENDED = 3
+MIN_DESC_LENGTH = 15
 
 RESULTS_FILE = Path("previous_results.json")
 LOG_FILE = Path("monitor.log")
@@ -91,6 +95,17 @@ def parse_time(s: str):
         return None
 
 
+def detect_region(repo: dict) -> str:
+    text = ((repo.get("description") or "") + " " + (repo.get("full_name") or "")).lower()
+    for ch in text:
+        if '\u4e00' <= ch <= '\u9fff':
+            return "cn"
+    for kw in ["cn-", "china", "chinese", "中文", "华"]:
+        if kw in text:
+            return "cn"
+    return "intl"
+
+
 def compute_relevance_score(repo: dict, tier: str) -> int:
     score = 0
     topics = set(t.lower() for t in repo.get("topics", []))
@@ -98,7 +113,7 @@ def compute_relevance_score(repo: dict, tier: str) -> int:
     name = (repo.get("full_name") or "").lower()
 
     high_value_topics = {"ai-pentest", "pentest-ai", "ai-pentesting", "ai-penetration-testing", "mcp-security", "llm-security"}
-    mid_value_topics = {"ai-security", "agent-security", "ai-red-team", "red-teaming", "red-team", "offensive-security", "ai-hacking", "ai-exploit"}
+    mid_value_topics = {"ai-security", "agent-security", "ai-red-team", "red-teaming", "red-team", "offensive-security", "ai-hacking", "ai-exploit", "ctf", "ctf-tools", "hacking", "cybersecurity"}
 
     if topics & high_value_topics:
         score += 30
@@ -115,8 +130,12 @@ def compute_relevance_score(repo: dict, tier: str) -> int:
         score += 5
     if "mcp" in desc:
         score += 5
+    if "ctf" in desc:
+        score += 5
+    if "渗透" in desc or "攻防" in desc or "红队" in desc or "安全" in desc:
+        score += 10
 
-    if "pentest" in name or "pentest" in name or "ai-" in name:
+    if "pentest" in name or "ai-" in name:
         score += 5
 
     stars = repo.get("stars", 0)
@@ -192,6 +211,7 @@ def _parse_items(items: list, query_name: str) -> list:
             "tier": tier,
         }
         repo["relevance"] = compute_relevance_score(repo, tier)
+        repo["region"] = detect_region(repo)
         results.append(repo)
 
     return results
@@ -247,11 +267,12 @@ def format_repo(repo: dict, prefix: str = "") -> str:
     desc = repo["description"][:80] + "..." if len(repo["description"]) > 80 else repo["description"]
     topics = ", ".join(repo["topics"]) if repo["topics"] else "-"
     score = repo.get("relevance", 0)
+    region = repo.get("region", "intl")
     reason = ""
     if repo.get("_update_reason"):
         reason = f"\n     Motivo: {' | '.join(repo['_update_reason'])}"
     return (
-        f"  {prefix}{repo['full_name']}  [score={score}]\n"
+        f"  {prefix}{repo['full_name']}  [score={score}] [{region}]\n"
         f"     Stars: {repo['stars']}  Lang: {repo['language']}  Data: {repo['created_at'][:10]}\n"
         f"     URL: {repo['url']}\n"
         f"     Desc: {desc or '(nessuna descrizione)'}\n"
