@@ -1,0 +1,34 @@
+{
+  "ai-pentest-framework": {
+    "last_check": "2026-10-08T15:04:18.435607+00:00",
+    "query": "(\"AI pentest\" OR \"LLM pentest\" OR \"AI red team\" OR \"autonomous pentest\" OR \"AI penetration testing\") in:name,description,readme NOT archived:true fork:false",
+    "seen_ids": [],
+    "last_new": [],
+    "last_updated": [],
+    "last_results": []
+  },
+  "ai-offensive-tool": {
+    "last_check": "2026-10-08T15:04:19.035065+00:00",
+    "query": "(\"LLM exploit\" OR \"AI exploit generation\" OR \"AI vuln discovery\" OR \"AI fuzzing\" OR \"AI-powered security\") in:name,description,readme NOT archived:true fork:false",
+    "seen_ids": [],
+    "last_new": [],
+    "last_updated": [],
+    "last_results": []
+  },
+  "mcp-security": {
+    "last_check": "2026-10-08T15:04:19.745540+00:00",
+    "query": "(\"MCP security\" OR \"MCP scanner\" OR \"Model Context Protocol security\" OR \"MCP pentest\") in:name,description,readme NOT archived:true fork:false",
+    "seen_ids": [],
+    "last_new": [],
+    "last_updated": [],
+    "last_results": []
+  },
+  "ai-agent-security": {
+    "last_check": "2026-10-08T15:04:20.366611+00:00",
+    "query": "(\"AI agent\" AND (security OR pentest OR red-team OR offensive)) in:name,description,readme NOT archived:true fork:false",
+    "seen_ids": [],
+    "last_new": [],
+    "last_updated": [],
+    "last_results": []
+  }
+}
