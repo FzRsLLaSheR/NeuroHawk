@@ -10,22 +10,14 @@ from urllib.error import URLError, HTTPError
 from urllib.parse import quote_plus
 
 QUERIES = [
-    {
-        "name": "ai-pentest",
-        "q": 'topic:ai-pentest OR topic:pentest-ai OR topic:ai-security OR topic:llm-security NOT archived:true fork:false',
-    },
-    {
-        "name": "mcp-security",
-        "q": 'topic:mcp-security OR topic:mcp-server "security" OR "pentest" NOT archived:true fork:false',
-    },
-    {
-        "name": "ai-offensive",
-        "q": '("AI" OR "LLM" OR "agent") "offensive security" OR "red team" in:name,description,readme NOT archived:true fork:false',
-    },
-    {
-        "name": "autonomous-pentest",
-        "q": '"autonomous" "pentest" in:name,description,readme NOT archived:true fork:false',
-    },
+    {"name": "ai-pentest", "q": 'topic:ai-pentest'},
+    {"name": "pentest-ai", "q": 'topic:pentest-ai'},
+    {"name": "ai-security", "q": 'topic:ai-security'},
+    {"name": "llm-security", "q": 'topic:llm-security'},
+    {"name": "mcp-security", "q": 'topic:mcp-security'},
+    {"name": "mcp-server", "q": 'topic:mcp-server'},
+    {"name": "autonomous-pentest", "q": 'autonomous pentest in:name,description,readme'},
+    {"name": "ai-red-team", "q": '"red team" AI in:name,description,readme'},
 ]
 
 DAYS_LOOKBACK = 7
@@ -35,7 +27,7 @@ UPDATE_MAX_AGE_DAYS = 30
 PER_PAGE = 50
 MAX_SEEN_IDS = 500
 MAX_LAST_RESULTS = 500
-MIN_STARS = 1
+MIN_STARS = 0
 
 RESULTS_FILE = Path("previous_results.json")
 LOG_FILE = Path("monitor.log")
@@ -172,8 +164,8 @@ def save_results(results: dict):
 
 
 def format_repo(repo: dict, prefix: str = "") -> str:
-    desc = repo["description"][:80] + "…" if len(repo["description"]) > 80 else repo["description"]
-    topics = ", ".join(repo["topics"]) if repo["topics"] else "—"
+    desc = repo["description"][:80] + "..." if len(repo["description"]) > 80 else repo["description"]
+    topics = ", ".join(repo["topics"]) if repo["topics"] else "-"
     reason = ""
     if repo.get("_update_reason"):
         reason = f"\n     Motivo: {' | '.join(repo['_update_reason'])}"
