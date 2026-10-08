@@ -102,20 +102,4 @@ Requires Python 3.10+. No external dependencies.
 
 ---
 
-## GitHub Search syntax reference
-
-| Operator | Example |
-|----------|---------|
-| `AND` | `"BYOVD" AND kill` |
-| `OR` | `(kill OR bypass OR evade)` |
-| `NOT` | `NOT archived` |
-| `in:name` | search in repo name only |
-| `in:description` | search in description only |
-| `in:readme` | search in README |
-| `topic:` | `topic:ai-pentest` |
-| `stars:>N` | repos with more than N stars |
-| `language:C` | filter by language |
-
----
-
 *Runs on GitHub Actions. Zero cost on public repositories.*
