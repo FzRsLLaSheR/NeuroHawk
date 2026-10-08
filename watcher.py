@@ -10,14 +10,30 @@ from urllib.error import URLError, HTTPError
 from urllib.parse import quote_plus
 
 QUERIES = [
-    {"name": "ai-pentest", "q": 'topic:ai-pentest'},
-    {"name": "pentest-ai", "q": 'topic:pentest-ai'},
-    {"name": "ai-security", "q": 'topic:ai-security'},
-    {"name": "llm-security", "q": 'topic:llm-security'},
-    {"name": "mcp-security", "q": 'topic:mcp-security'},
-    {"name": "mcp-server", "q": 'topic:mcp-server'},
-    {"name": "autonomous-pentest", "q": 'autonomous pentest in:name,description,readme'},
-    {"name": "ai-red-team", "q": '"red team" AI in:name,description,readme'},
+    {"name": "ai-pentest", "q": 'topic:ai-pentest', "tier": "core"},
+    {"name": "pentest-ai", "q": 'topic:pentest-ai', "tier": "core"},
+    {"name": "ai-pentesting", "q": 'topic:ai-pentesting', "tier": "core"},
+    {"name": "ai-penetration-testing", "q": 'topic:ai-penetration-testing', "tier": "core"},
+    {"name": "mcp-security", "q": 'topic:mcp-security', "tier": "core"},
+    {"name": "llm-security", "q": 'topic:llm-security', "tier": "core"},
+    {"name": "ai-red-team", "q": '"red team" AI pentest in:description', "tier": "extended"},
+    {"name": "autonomous-pentest", "q": '"autonomous pentest" in:description', "tier": "extended"},
+    {"name": "ai-exploit", "q": '"AI exploit" OR "LLM exploit" in:description', "tier": "extended"},
+]
+
+CORE_TOPICS = {
+    "ai-pentest", "pentest-ai", "ai-pentesting", "ai-penetration-testing",
+    "ai-penetration", "pentest", "penetration-testing",
+    "mcp-security", "llm-security", "ai-security", "agent-security",
+    "ai-red-team", "red-teaming", "red-team", "red-team-tools",
+    "offensive-security", "ai-hacking", "ai-exploit",
+}
+
+BLOCK_DESC_KEYWORDS = [
+    "portfolio", "profile readme", "my profile", "personal website",
+    "awesome list", "awesome-list", "curated list", "curated list of",
+    "collection of links", "book of", "study notes", "course notes",
+    "my resume", "cv ", "resume ",
 ]
 
 DAYS_LOOKBACK = 7
@@ -27,7 +43,10 @@ UPDATE_MAX_AGE_DAYS = 30
 PER_PAGE = 50
 MAX_SEEN_IDS = 500
 MAX_LAST_RESULTS = 500
-MIN_STARS = 0
+
+MIN_STARS_CORE = 0
+MIN_STARS_EXTENDED = 10
+MIN_DESC_LENGTH = 20
 
 RESULTS_FILE = Path("previous_results.json")
 LOG_FILE = Path("monitor.log")
@@ -72,6 +91,48 @@ def parse_time(s: str):
         return None
 
 
+def compute_relevance_score(repo: dict, tier: str) -> int:
+    score = 0
+    topics = set(t.lower() for t in repo.get("topics", []))
+    desc = (repo.get("description") or "").lower()
+    name = (repo.get("full_name") or "").lower()
+
+    high_value_topics = {"ai-pentest", "pentest-ai", "ai-pentesting", "ai-penetration-testing", "mcp-security", "llm-security"}
+    mid_value_topics = {"ai-security", "agent-security", "ai-red-team", "red-teaming", "red-team", "offensive-security", "ai-hacking", "ai-exploit"}
+
+    if topics & high_value_topics:
+        score += 30
+    if topics & mid_value_topics:
+        score += 15
+
+    if "pentest" in desc or "penetration" in desc:
+        score += 10
+    if "red team" in desc or "red-team" in desc or "redteam" in desc:
+        score += 8
+    if "exploit" in desc or "vulnerability" in desc or "vuln" in desc:
+        score += 5
+    if "agent" in desc or "llm" in desc or "ai" in desc:
+        score += 5
+    if "mcp" in desc:
+        score += 5
+
+    if "pentest" in name or "pentest" in name or "ai-" in name:
+        score += 5
+
+    stars = repo.get("stars", 0)
+    if stars >= 100:
+        score += 20
+    elif stars >= 20:
+        score += 10
+    elif stars >= 5:
+        score += 5
+
+    if tier == "extended":
+        score -= 5
+
+    return max(0, score)
+
+
 def search_repositories(query_name: str, query_str: str, days: int) -> list:
     since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
     full_query = quote_plus(f"{query_str} created:>={since}")
@@ -95,17 +156,32 @@ def search_recently_updated(query_name: str, query_str: str, days: int) -> list:
 
 
 def _parse_items(items: list, query_name: str) -> list:
+    query_cfg = next((q for q in QUERIES if q["name"] == query_name), None)
+    tier = query_cfg.get("tier", "core") if query_cfg else "core"
+    min_stars = MIN_STARS_CORE if tier == "core" else MIN_STARS_EXTENDED
+
     results = []
     for item in items:
-        if item["stargazers_count"] < MIN_STARS:
+        if item["stargazers_count"] < min_stars:
             continue
-        if not item.get("description"):
+
+        desc = (item.get("description") or "").strip()
+        if len(desc) < MIN_DESC_LENGTH:
             continue
-        results.append({
+
+        desc_lower = desc.lower()
+        if any(kw in desc_lower for kw in BLOCK_DESC_KEYWORDS):
+            continue
+
+        topics = set(t.lower() for t in item.get("topics", []))
+        if not (topics & CORE_TOPICS):
+            continue
+
+        repo = {
             "id": item["id"],
             "full_name": item["full_name"],
             "url": item["html_url"],
-            "description": item.get("description") or "",
+            "description": desc,
             "stars": item["stargazers_count"],
             "language": item.get("language") or "N/A",
             "created_at": item.get("created_at", ""),
@@ -113,7 +189,11 @@ def _parse_items(items: list, query_name: str) -> list:
             "pushed_at": item.get("pushed_at", ""),
             "topics": item.get("topics", []),
             "query": query_name,
-        })
+            "tier": tier,
+        }
+        repo["relevance"] = compute_relevance_score(repo, tier)
+        results.append(repo)
+
     return results
 
 
@@ -166,11 +246,12 @@ def save_results(results: dict):
 def format_repo(repo: dict, prefix: str = "") -> str:
     desc = repo["description"][:80] + "..." if len(repo["description"]) > 80 else repo["description"]
     topics = ", ".join(repo["topics"]) if repo["topics"] else "-"
+    score = repo.get("relevance", 0)
     reason = ""
     if repo.get("_update_reason"):
         reason = f"\n     Motivo: {' | '.join(repo['_update_reason'])}"
     return (
-        f"  {prefix}{repo['full_name']}\n"
+        f"  {prefix}{repo['full_name']}  [score={score}]\n"
         f"     Stars: {repo['stars']}  Lang: {repo['language']}  Data: {repo['created_at'][:10]}\n"
         f"     URL: {repo['url']}\n"
         f"     Desc: {desc or '(nessuna descrizione)'}\n"
@@ -202,7 +283,8 @@ def main():
     for entry in QUERIES:
         name = entry["name"]
         q_str = entry["q"]
-        log(f"Query: '{name}'")
+        tier = entry.get("tier", "core")
+        log(f"Query: '{name}' [{tier}]")
         log(f"  {q_str}")
 
         try:
@@ -238,13 +320,13 @@ def main():
 
             all_seen = list(updated_repos_all) + list(new_repos_all)
             all_ids = list(prev_ids | {str(r["id"]) for r in all_seen})
-
             all_ids = all_ids[-MAX_SEEN_IDS:]
             all_seen = all_seen[-MAX_LAST_RESULTS:]
 
             current_run[name] = {
                 "last_check": datetime.now(timezone.utc).isoformat(),
                 "query": q_str,
+                "tier": tier,
                 "seen_ids": all_ids,
                 "last_new": [r["full_name"] for r in new_repos],
                 "last_updated": [r["full_name"] for r in updated_repos],
