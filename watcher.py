@@ -1,9 +1,4 @@
 #!/usr/bin/env python3
-"""
-NeuroHawk — Watcher
-Scansiona GitHub per repository di AI-Pentest, LLM security,
-MCP security e agenti autonomi offensivi.
-"""
 
 import json
 import os
@@ -14,55 +9,38 @@ from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 from urllib.parse import quote_plus
 
-# ─────────────────────────────────────────────
-# CONFIGURAZIONE
-# ─────────────────────────────────────────────
-
 QUERIES = [
     {
-        "name": "ai-pentest-framework",
-        "q": '("AI pentest" OR "LLM pentest" OR "AI red team" OR "autonomous pentest" OR "AI penetration testing") in:name,description,readme NOT archived:true fork:false',
-    },
-    {
-        "name": "ai-offensive-tool",
-        "q": '("LLM exploit" OR "AI exploit generation" OR "AI vuln discovery" OR "AI fuzzing" OR "AI-powered security") in:name,description,readme NOT archived:true fork:false',
+        "name": "ai-pentest",
+        "q": 'topic:ai-pentest OR topic:pentest-ai OR topic:ai-security OR topic:llm-security NOT archived:true fork:false',
     },
     {
         "name": "mcp-security",
-        "q": '("MCP security" OR "MCP scanner" OR "Model Context Protocol security" OR "MCP pentest") in:name,description,readme NOT archived:true fork:false',
+        "q": 'topic:mcp-security OR topic:mcp-server "security" OR "pentest" NOT archived:true fork:false',
     },
     {
-        "name": "ai-agent-security",
-        "q": '("AI agent" AND (security OR pentest OR red-team OR offensive)) in:name,description,readme NOT archived:true fork:false',
+        "name": "ai-offensive",
+        "q": '("AI" OR "LLM" OR "agent") "offensive security" OR "red team" in:name,description,readme NOT archived:true fork:false',
+    },
+    {
+        "name": "autonomous-pentest",
+        "q": '"autonomous" "pentest" in:name,description,readme NOT archived:true fork:false',
     },
 ]
 
-# Quanti giorni indietro per i repo NUOVI
-DAYS_LOOKBACK = 1
-
-# Quanti giorni indietro per cercare repo da monitorare per aggiornamenti
+DAYS_LOOKBACK = 7
 DAYS_MONITOR_UPDATES = 30
-
-# Soglie per considerare un aggiornamento "rilevante"
 UPDATE_MIN_HOURS = 1
 UPDATE_MAX_AGE_DAYS = 30
-
-# Risultati per query
 PER_PAGE = 50
-
-# Limiti di stato (per non far crescere il JSON all'infinito)
 MAX_SEEN_IDS = 500
 MAX_LAST_RESULTS = 500
+MIN_STARS = 1
 
-# Filtro minimo stelle (anti-falsi-positivi)
-MIN_STARS = 3
-
-# File di stato
 RESULTS_FILE = Path("previous_results.json")
 LOG_FILE = Path("monitor.log")
 
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
-# ─────────────────────────────────────────────
 
 
 def log(message: str, level: str = "INFO"):
@@ -93,7 +71,7 @@ def github_request(url: str) -> dict:
         raise RuntimeError(f"Errore di rete: {e.reason}") from e
 
 
-def parse_time(s: str) -> datetime | None:
+def parse_time(s: str):
     if not s:
         return None
     try:
@@ -102,7 +80,7 @@ def parse_time(s: str) -> datetime | None:
         return None
 
 
-def search_repositories(query_name: str, query_str: str, days: int) -> list[dict]:
+def search_repositories(query_name: str, query_str: str, days: int) -> list:
     since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
     full_query = quote_plus(f"{query_str} created:>={since}")
     url = (
@@ -113,7 +91,7 @@ def search_repositories(query_name: str, query_str: str, days: int) -> list[dict
     return _parse_items(data.get("items", []), query_name)
 
 
-def search_recently_updated(query_name: str, query_str: str, days: int) -> list[dict]:
+def search_recently_updated(query_name: str, query_str: str, days: int) -> list:
     since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
     full_query = quote_plus(f"{query_str} pushed:>={since}")
     url = (
@@ -124,15 +102,13 @@ def search_recently_updated(query_name: str, query_str: str, days: int) -> list[
     return _parse_items(data.get("items", []), query_name)
 
 
-def _parse_items(items: list, query_name: str) -> list[dict]:
+def _parse_items(items: list, query_name: str) -> list:
     results = []
     for item in items:
-        # Filtri anti-falsi-positivi
         if item["stargazers_count"] < MIN_STARS:
             continue
         if not item.get("description"):
             continue
-
         results.append({
             "id": item["id"],
             "full_name": item["full_name"],
@@ -149,29 +125,23 @@ def _parse_items(items: list, query_name: str) -> list[dict]:
     return results
 
 
-def detect_updates(current: list[dict], previous_map: dict) -> list[dict]:
+def detect_updates(current: list, previous_map: dict) -> list:
     updated = []
     now = datetime.now(timezone.utc)
-
     for repo in current:
         url = repo["url"]
         if url not in previous_map:
             continue
-
         prev = previous_map[url]
         cur_pushed = parse_time(repo.get("pushed_at"))
         prev_pushed = parse_time(prev.get("pushed_at"))
-
         if not cur_pushed or not prev_pushed:
             continue
-
         push_diff = cur_pushed - prev_pushed
-
         cur_topics = set(repo.get("topics", []))
         prev_topics = set(prev.get("topics", []))
         new_topics = cur_topics - prev_topics
         repo_age = now - (parse_time(repo.get("created_at")) or now)
-
         if push_diff >= timedelta(hours=UPDATE_MIN_HOURS):
             if repo_age.days <= UPDATE_MAX_AGE_DAYS or new_topics:
                 repo["_update_reason"] = []
@@ -180,7 +150,6 @@ def detect_updates(current: list[dict], previous_map: dict) -> list[dict]:
                 if new_topics:
                     repo["_update_reason"].append(f"nuovi topic: {', '.join(new_topics)}")
                 updated.append(repo)
-
     return updated
 
 
@@ -207,13 +176,13 @@ def format_repo(repo: dict, prefix: str = "") -> str:
     topics = ", ".join(repo["topics"]) if repo["topics"] else "—"
     reason = ""
     if repo.get("_update_reason"):
-        reason = f"\n     🔄 Motivo: {' | '.join(repo['_update_reason'])}"
+        reason = f"\n     Motivo: {' | '.join(repo['_update_reason'])}"
     return (
-        f"  {prefix}📦 {repo['full_name']}\n"
-        f"     ⭐ {repo['stars']}  🗣 {repo['language']}  📅 {repo['created_at'][:10]}\n"
-        f"     🔗 {repo['url']}\n"
-        f"     📝 {desc or '(nessuna descrizione)'}\n"
-        f"     🏷  {topics}"
+        f"  {prefix}{repo['full_name']}\n"
+        f"     Stars: {repo['stars']}  Lang: {repo['language']}  Data: {repo['created_at'][:10]}\n"
+        f"     URL: {repo['url']}\n"
+        f"     Desc: {desc or '(nessuna descrizione)'}\n"
+        f"     Topics: {topics}"
         f"{reason}"
     )
 
@@ -226,14 +195,14 @@ def main():
     log(f"Query monitorate: {', '.join(query_names)}")
     log(f"Nuovi repo: ultimi {DAYS_LOOKBACK} giorni")
     log(f"Aggiornamenti: ultimi {DAYS_MONITOR_UPDATES} giorni")
-    log(f"Token GitHub: {'✓ presente' if GITHUB_TOKEN else '✗ assente'}")
+    log(f"Token GitHub: {'presente' if GITHUB_TOKEN else 'assente'}")
     log("=" * 60)
 
     if not GITHUB_TOKEN:
         log("ATTENZIONE: nessun GITHUB_TOKEN, rate limit molto basso.", "WARN")
 
     previous = load_previous_results()
-    current_run: dict[str, dict] = {}
+    current_run = {}
     total_new = 0
     total_updated = 0
     errors = 0
@@ -242,13 +211,13 @@ def main():
         name = entry["name"]
         q_str = entry["q"]
         log(f"Query: '{name}'")
-        log(f"  ↳ {q_str}")
+        log(f"  {q_str}")
 
         try:
             new_repos_all = search_repositories(name, q_str, DAYS_LOOKBACK)
             updated_repos_all = search_recently_updated(name, q_str, DAYS_MONITOR_UPDATES)
 
-            log(f"  → {len(new_repos_all)} repo nella finestra 'nuovi', {len(updated_repos_all)} nella finestra 'aggiornati'")
+            log(f"  {len(new_repos_all)} repo nella finestra 'nuovi', {len(updated_repos_all)} nella finestra 'aggiornati'")
 
             prev_data = previous.get(name, {})
             prev_ids = set(prev_data.get("seen_ids", []))
@@ -260,25 +229,24 @@ def main():
             updated_repos = [r for r in updated_repos if r["url"] not in new_urls]
 
             if new_repos:
-                log(f"  🆕 {len(new_repos)} NUOVI repository:", "NEW")
+                log(f"  {len(new_repos)} NUOVI repository:", "NEW")
                 for repo in new_repos:
-                    log(format_repo(repo, "🆕 "), "NEW")
+                    log(format_repo(repo, "[NEW] "), "NEW")
                     total_new += 1
             else:
-                log("  ✓ Nessun repo nuovo")
+                log("  Nessun repo nuovo")
 
             if updated_repos:
-                log(f"  📢 {len(updated_repos)} repository AGGIORNATI:", "UPD")
+                log(f"  {len(updated_repos)} repository AGGIORNATI:", "UPD")
                 for repo in updated_repos:
-                    log(format_repo(repo, "📢 "), "UPD")
+                    log(format_repo(repo, "[UPD] "), "UPD")
                     total_updated += 1
             else:
-                log("  ✓ Nessun aggiornamento rilevante")
+                log("  Nessun aggiornamento rilevante")
 
             all_seen = list(updated_repos_all) + list(new_repos_all)
             all_ids = list(prev_ids | {str(r["id"]) for r in all_seen})
 
-            # Troncamento per non far esplodere il file di stato
             all_ids = all_ids[-MAX_SEEN_IDS:]
             all_seen = all_seen[-MAX_LAST_RESULTS:]
 
@@ -292,14 +260,14 @@ def main():
             }
 
         except RuntimeError as e:
-            log(f"  ✗ Errore per '{name}': {e}", "ERROR")
+            log(f"  Errore per '{name}': {e}", "ERROR")
             current_run[name] = previous.get(name, {})
             errors += 1
 
     save_results(current_run)
 
     log("=" * 60)
-    log(f"Completato — {total_new} nuovi, {total_updated} aggiornati, {errors} errori")
+    log(f"Completato: {total_new} nuovi, {total_updated} aggiornati, {errors} errori")
     log("=" * 60)
 
     if errors > 0:
